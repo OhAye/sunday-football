@@ -12,6 +12,7 @@
   --color-muted:        #64748b;
   --color-faint:        #334155;
   --font-display:       'Oswald', sans-serif;
+  --font-score:         'Teko', sans-serif;
 }
 
 * {
@@ -36,4 +37,189 @@ h1, h2, h3, .font-display {
 
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
+}
+
+/* ── Noise grain overlay ── */
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  z-index: 1;
+}
+
+/* ── Staggered card entrance ── */
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card-enter {
+  animation: cardReveal 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.card-enter:nth-child(1) { animation-delay: 0ms; }
+.card-enter:nth-child(2) { animation-delay: 60ms; }
+.card-enter:nth-child(3) { animation-delay: 120ms; }
+.card-enter:nth-child(4) { animation-delay: 180ms; }
+.card-enter:nth-child(5) { animation-delay: 240ms; }
+.card-enter:nth-child(6) { animation-delay: 300ms; }
+.card-enter:nth-child(7) { animation-delay: 360ms; }
+.card-enter:nth-child(8) { animation-delay: 420ms; }
+
+/* ── Hero entrance ── */
+@keyframes heroSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-enter {
+  animation: heroSlide 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Glow pulse for matchday ── */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 20px #16a34a22, inset 0 0 20px #16a34a08; }
+  50% { box-shadow: 0 0 40px #16a34a33, inset 0 0 30px #16a34a11; }
+}
+
+.matchday-glow {
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+/* ── Score number style ── */
+.score-num {
+  font-family: 'Teko', sans-serif;
+  font-weight: 700;
+  line-height: 0.85;
+  letter-spacing: -0.02em;
+}
+
+/* ── Glass nav ── */
+.glass-nav {
+  background: rgba(11, 15, 20, 0.75);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Active tab glow dot ── */
+@keyframes tabGlow {
+  0%, 100% { opacity: 0.7; transform: scaleX(1); }
+  50% { opacity: 1; transform: scaleX(1.3); }
+}
+
+.tab-glow {
+  animation: tabGlow 2s ease-in-out infinite;
+}
+
+/* ── Countdown big number ── */
+.countdown-num {
+  font-family: 'Teko', sans-serif;
+  font-weight: 700;
+  line-height: 0.8;
+}
+
+/* ── Fire icon ── */
+@keyframes fireFlicker {
+  0%   { transform: scale(1)    rotate(-2deg); opacity: 1;    }
+  25%  { transform: scale(1.08) rotate(2deg);  opacity: 0.88; }
+  50%  { transform: scale(0.96) rotate(-1deg); opacity: 1;    }
+  75%  { transform: scale(1.04) rotate(1.5deg);opacity: 0.92; }
+  100% { transform: scale(1)    rotate(-2deg); opacity: 1;    }
+}
+
+.fire-icon {
+  display: inline-block;
+  animation: fireFlicker 1.4s ease-in-out infinite;
+  transform-origin: center bottom;
+  will-change: transform;
+}
+
+/* ── Frost icon ── */
+@keyframes frostPulse {
+  0%   { transform: scale(1)    rotate(0deg);   opacity: 1;    filter: brightness(1); }
+  30%  { transform: scale(1.12) rotate(-8deg);  opacity: 0.85; filter: brightness(1.3); }
+  60%  { transform: scale(0.95) rotate(6deg);   opacity: 1;    filter: brightness(0.9); }
+  80%  { transform: scale(1.06) rotate(-4deg);  opacity: 0.9;  filter: brightness(1.2); }
+  100% { transform: scale(1)    rotate(0deg);   opacity: 1;    filter: brightness(1); }
+}
+
+.frost-icon {
+  display: inline-block;
+  animation: frostPulse 2.2s ease-in-out infinite;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+/* ── Subtle hover lift for cards ── */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:active {
+  transform: scale(0.98);
+}
+
+/* ── Stat number count-up ── */
+@keyframes statPop {
+  from { opacity: 0; transform: scale(0.5) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.stat-pop {
+  animation: statPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Proportion bar grow ── */
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.bar-grow {
+  animation: barGrow 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
+  transform-origin: left;
+}
+
+/* ── Form dot pop-in ── */
+@keyframes dotPop {
+  from { opacity: 0; transform: scale(0); }
+  60%  { transform: scale(1.3); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.dot-pop {
+  animation: dotPop 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Section slide-up ── */
+@keyframes sectionUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.section-enter {
+  animation: sectionUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── MOTM gold shimmer ── */
+@keyframes motmShimmer {
+  0%   { text-shadow: 0 0 4px #fbbf2400; }
+  50%  { text-shadow: 0 0 12px #fbbf2466, 0 0 24px #fbbf2422; }
+  100% { text-shadow: 0 0 4px #fbbf2400; }
+}
+.motm-shimmer {
+  animation: motmShimmer 2.5s ease-in-out infinite;
 }
