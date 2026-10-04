@@ -1,182 +1,148 @@
-import { Link } from 'react-router-dom'
-import { useApp } from '../context/AppContext'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useApp } from '../context/app-context'
+import { BREAK, MIN_RATED_GAMES, MIN_STREAK_GAMES } from '../lib/constants'
+import { currentYear, fmtDate, getNextMatchday, pct, plural, weatherEmoji } from '../lib/format'
+import { formatOf, motmIdsOf, rankRows, winnerOf } from '../lib/stats'
+import { EmptyState, Loading, Segmented, StatTile } from '../components/ui'
+import { ChevronRightIcon } from '../components/icons'
+import MatchFace from '../components/MatchFace'
+import PlayerAvatar from '../components/PlayerAvatar'
+import FireIcon from '../components/FireIcon'
+import FrostIcon from '../components/FrostIcon'
 
-// ─── date helpers ──────────────────────────────────────────────
-function getNextSunday() {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const dow = today.getDay()                     // 0 = Sun
-  const daysUntil = dow === 0 ? 0 : 7 - dow
-  const next = new Date(today)
-  next.setDate(today.getDate() + daysUntil)
-  return { date: next, daysUntil }
-}
+const TOP_N = 5
+const ADMIN_TAPS = 7 // taps on the title that open the admin PIN pad
 
-function toYMD(d) {
-  return d.toISOString().slice(0, 10)
-}
-
-function fmtShort(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-  })
-}
-
-function fmtDay(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  })
-}
-
-// ─── page ──────────────────────────────────────────────────────
+// Everything on Home is current-season only — never all-time.
 export default function Dashboard() {
-  const { players, sessions, getPlayerStats, getMotmCount } = useApp()
+  const { players, sessions, playedSessions, sessionsLoaded, getPlayerStats, getMotmCount, getStreaks, getAttendance } = useApp()
+  const navigate = useNavigate()
+  const tapCount = useRef(0)
+  const tapTimer = useRef(null)
+  useEffect(() => () => clearTimeout(tapTimer.current), [])
 
-  /* ── countdown ── */
-  const { date: nextSunday, daysUntil } = getNextSunday()
-  const nextSundayStr = toYMD(nextSunday)
-  const scheduledSession = sessions.find((s) => s.date === nextSundayStr)
-  const isMatchday = daysUntil === 0
+  function handleTitleTap() {
+    tapCount.current += 1
+    clearTimeout(tapTimer.current)
+    if (tapCount.current >= ADMIN_TAPS) {
+      tapCount.current = 0
+      navigate('/admin')
+      return
+    }
+    tapTimer.current = setTimeout(() => { tapCount.current = 0 }, 3000)
+  }
 
-  /* ── last result ── */
-  const lastResult = [...sessions]
-    .filter((s) => s.result)
-    .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+  if (!sessionsLoaded) return <Loading />
 
-  /* ── season numbers ── */
-  const completedSessions = sessions.filter((s) => s.result)
-  const totalGoals = completedSessions.reduce((sum, s) => {
-    if (!s.result?.goals) return sum
-    return sum + Object.values(s.result.goals).reduce((a, b) => a + b, 0)
-  }, 0)
+  const year = currentYear()
+  const next = getNextMatchday()
+  const onNextDate = sessions.filter((s) => s.date === next.date)
+  const scheduled = onNextDate.find((s) => !s.result) ?? onNextDate[0] ?? null
+  const lastResult = sessions.find((s) => s.result) ?? null // sessions arrive newest-first
 
-  /* ── player stats ── */
-  const allStats = players.map((p) => ({
-    ...p,
-    ...getPlayerStats(p.id),
-    motm: getMotmCount(p.id),
+  // ── Season numbers ──
+  const seasonGames = playedSessions.filter((s) => s.date?.startsWith(year) && s.result)
+  const seasonPlayers = new Set(seasonGames.flatMap((s) => s.playerIds)).size
+  const seasonGoals = seasonGames.reduce(
+    (sum, s) => (s.result.scoreKnown === false ? sum : sum + s.result.scoreA + s.result.scoreB),
+    0,
+  )
+
+  // ── Leader boards ──
+  const season = players.map((p) => ({
+    player: p,
+    ...getPlayerStats(p.id, year),
+    motm: getMotmCount(p.id, year),
+    attendance: getAttendance(p.id, year),
+    ...getStreaks(p.id),
   }))
+  const top = (rows, valueOf, labelOf) =>
+    rankRows(rows.slice(0, TOP_N), valueOf).map(({ item, rank }) => ({ player: item.player, rank, label: labelOf(item) }))
 
-  const motmLeader = [...allStats].sort((a, b) => b.motm - a.motm).find((p) => p.motm > 0) ?? null
-  const winLeader  = [...allStats]
-    .filter((p) => p.played >= 5)
-    .sort((a, b) => b.wins / b.played - a.wins / a.played)[0] ?? null
+  const boards = {
+    motm: {
+      rows: top(season.filter((r) => r.motm > 0).sort((a, b) => b.motm - a.motm), (r) => r.motm, (r) => `${r.motm}`),
+      unit: 'awards', color: '#fbbf24', empty: 'No awards yet this season',
+    },
+    win: {
+      rows: top(
+        season
+          .filter((r) => r.played >= MIN_RATED_GAMES)
+          .map((r) => ({ ...r, winPct: pct(r.wins, r.played) }))
+          .sort((a, b) => b.winPct - a.winPct || b.played - a.played),
+        (r) => r.winPct,
+        (r) => `${r.winPct}%`,
+      ),
+      unit: `min ${MIN_RATED_GAMES} games`, color: '#22c55e', empty: `Needs ${MIN_RATED_GAMES}+ games this season`,
+    },
+    reliable: {
+      rows: top(
+        season
+          .filter((r) => r.attendance.played >= MIN_STREAK_GAMES && r.attendance.rate !== null)
+          .sort((a, b) => b.attendance.rate - a.attendance.rate || b.attendance.played - a.attendance.played),
+        (r) => r.attendance.rate,
+        (r) => `${r.attendance.rate}%`,
+      ),
+      unit: 'attendance', color: '#60a5fa', empty: 'No games this season yet',
+    },
+  }
 
-  /* ── recent form (last 5 completed) ── */
-  const recentForm = completedSessions
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 5)
-    .map((s) => {
-      const { scoreA, scoreB } = s.result
-      if (scoreA > scoreB) return 'A'    // Team A won
-      if (scoreB > scoreA) return 'B'    // Team B won
-      return 'D'
-    })
-
-  const playerName = (id) => players.find((p) => p.id === id)?.name ?? 'Unknown'
+  const streakers = season.filter((r) => r.played >= MIN_STREAK_GAMES)
+  const hot = top(streakers.filter((r) => r.winStreak >= 2).sort((a, b) => b.winStreak - a.winStreak), (r) => r.winStreak, (r) => `${r.winStreak}`)
+  const cold = top(streakers.filter((r) => r.lossStreak >= 2).sort((a, b) => b.lossStreak - a.lossStreak), (r) => r.lossStreak, (r) => `${r.lossStreak}`)
 
   return (
     <div className="flex flex-col">
-      {/* ── Hero header ── */}
+      {/* ── Hero ── */}
       <header
-        className="px-5 pt-10 pb-6 relative overflow-hidden"
-        style={{ background: 'linear-gradient(160deg, #0d1f11 0%, #0b0f14 60%)' }}
+        className="grain hero-enter relative overflow-hidden px-5 pb-7"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 34px)' }}
       >
-        {/* decorative pitch lines */}
-        <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{
-          backgroundImage: 'repeating-linear-gradient(90deg, #16a34a 0px, #16a34a 1px, transparent 1px, transparent 40px)',
-        }} />
-        <p className="text-[#16a34a] text-xs font-semibold tracking-[0.3em] uppercase mb-2 relative">
-          Sunday 7-a-side
-        </p>
-        <h1
-          className="text-5xl font-bold uppercase leading-none text-[#f1f5f9] relative"
-          style={{ fontFamily: "'Oswald', sans-serif", letterSpacing: '-0.01em' }}
+        {/* season year as oversized scoreboard numerals */}
+        <span
+          aria-hidden="true"
+          className="num pointer-events-none absolute -right-3 top-6 select-none text-[190px] text-transparent"
+          style={{ WebkitTextStroke: '1.5px rgba(34,197,94,0.16)' }}
         >
-          Sunday
-          <br />
-          <span style={{ color: '#16a34a', textShadow: '0 0 30px #16a34a55' }}>FC</span>
-        </h1>
-        <div className="mt-4 h-0.5 w-16 rounded-full relative" style={{ background: '#16a34a', boxShadow: '0 0 12px #16a34a' }} />
+          {year.slice(2)}
+        </span>
+        <div className="relative z-10">
+          <p className="kicker mb-3">Sunday 7-a-side</p>
+          <h1 onClick={handleTitleTap} className="display cursor-default select-none text-[64px] text-ink">
+            Sunday
+            <br />
+            <span className="text-green-bright" style={{ textShadow: '0 0 34px rgba(22,163,74,0.55)' }}>FC</span>
+          </h1>
+          <p className="mt-3 text-sm text-mist">{year} season</p>
+        </div>
       </header>
 
-      <div className="px-4 space-y-4 pb-6">
+      <div className="stagger space-y-4 px-4">
+        <NextMatchCard next={next} session={scheduled} />
 
-        {/* ── Countdown card ── */}
-        <CountdownCard
-          isMatchday={isMatchday}
-          daysUntil={daysUntil}
-          nextSundayStr={nextSundayStr}
-          scheduledSession={scheduledSession}
-        />
-
-        {/* ── Last result ── */}
         {lastResult ? (
-          <LastResultCard session={lastResult} players={players} playerName={playerName} />
+          <LastResultCard session={lastResult} />
         ) : (
-          <EmptyCard
-            label="No Results Yet"
-            sub="Record your first match to see results here"
-            action={{ to: '/lineups', label: 'Add Match →' }}
+          <EmptyState
+            title="No results yet"
+            body="Record your first match to see it here."
+            action={<Link to="/lineups" className="btn btn-primary">Add a game</Link>}
           />
         )}
 
-        {/* ── Season numbers ── */}
-        <div className="grid grid-cols-3 gap-2">
-          <SeasonTile value={completedSessions.length} label="Matches" color="#16a34a" />
-          <SeasonTile value={totalGoals} label="Goals" color="#3b82f6" />
-          <SeasonTile value={players.length} label="Players" color="#a855f7" />
+        <div className="grid grid-cols-3 gap-2.5">
+          <StatTile value={seasonGames.length} label="Matches" color="#22c55e" />
+          <StatTile value={seasonPlayers} label="Players" />
+          <StatTile value={seasonGoals} label="Goals" color="#fbbf24" />
         </div>
 
-        {/* ── Leaders ── */}
-        <div className="grid grid-cols-2 gap-3">
-          <LeaderCard
-            title="MOTM Leader"
-            icon="⭐"
-            accentColor="#eab308"
-            dimColor="#3d2c00"
-            player={motmLeader}
-            stat={motmLeader ? `${motmLeader.motm} award${motmLeader.motm !== 1 ? 's' : ''}` : null}
-            emptyText="No awards yet"
-          />
-          <LeaderCard
-            title="Win Rate"
-            icon="🏆"
-            accentColor="#a855f7"
-            dimColor="#2e1065"
-            player={winLeader}
-            stat={winLeader
-              ? `${Math.round((winLeader.wins / winLeader.played) * 100)}% · ${winLeader.played}g`
-              : null}
-            emptyText="Need 5+ games"
-          />
-        </div>
+        <LeadersCard boards={boards} />
 
-        {/* ── Recent form ── */}
-        {recentForm.length > 0 && (
-          <div
-            className="rounded-2xl px-4 py-3"
-            style={{ background: '#141920', border: '1px solid #252d3a' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#64748b]"
-                style={{ fontFamily: "'Oswald', sans-serif" }}>
-                Recent Form
-              </p>
-              <Link to="/lineups" className="text-[10px] text-[#16a34a] font-semibold hover:text-[#22c55e]">
-                All matches →
-              </Link>
-            </div>
-            <div className="flex items-center gap-2">
-              {recentForm.map((r, i) => (
-                <FormDot key={i} result={r} />
-              ))}
-              {recentForm.length < 5 && (
-                <p className="text-[10px] text-[#334155] ml-1">
-                  {5 - recentForm.length} more to go
-                </p>
-              )}
-            </div>
+        {(hot.length > 0 || cold.length > 0) && (
+          <div className="grid grid-cols-2 gap-2.5">
+            <StreakCard title="Hot streak" icon={<FireIcon size={14} />} rows={hot} color="#f59e0b" unit="W" empty="Nobody's on a run" />
+            <StreakCard title="Cold spell" icon={<FrostIcon size={14} />} rows={cold} color="#60a5fa" unit="L" empty="Nobody's slumping" />
           </div>
         )}
       </div>
@@ -184,305 +150,207 @@ export default function Dashboard() {
   )
 }
 
-// ─── Countdown card ────────────────────────────────────────────
-function CountdownCard({ isMatchday, daysUntil, nextSundayStr, scheduledSession }) {
+// ─── Next match ────────────────────────────────────────────────
+function NextMatchCard({ next, session }) {
+  const { date, daysUntil, isOnBreak } = next
+  const isToday = daysUntil === 0
+  const live = isToday && session && !session.result
+  const fullTime = isToday && !!session?.result
+
+  let label = 'Next matchday'
+  if (isOnBreak) label = `${BREAK.label} · back on`
+  else if (live) label = 'Matchday'
+  else if (fullTime) label = 'Full time'
+  else if (isToday) label = 'Today'
+
   return (
-    <div
-      className="rounded-2xl overflow-hidden relative"
+    <section
+      className={`card relative overflow-hidden ${live ? 'matchday-glow' : ''}`}
       style={{
-        background: isMatchday
-          ? 'linear-gradient(135deg, #0d2a13, #0a1f0e)'
-          : 'linear-gradient(135deg, #0f1a12, #141920)',
-        border: `1px solid ${isMatchday ? '#16a34a' : '#252d3a'}`,
-        boxShadow: isMatchday ? '0 0 30px #16a34a22' : 'none',
+        background: 'linear-gradient(135deg, #0d2114 0%, #141920 62%)',
+        borderColor: live ? '#16a34a' : undefined,
       }}
     >
-      {/* pitch-stripe decoration */}
+      {/* corner flag stripes */}
       <div
-        className="absolute top-0 right-0 w-32 h-full opacity-[0.06] pointer-events-none"
-        style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, #16a34a, #16a34a 1px, transparent 1px, transparent 16px)',
-        }}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-36 opacity-[0.07]"
+        style={{ backgroundImage: 'repeating-linear-gradient(135deg, #22c55e 0 2px, transparent 2px 14px)' }}
       />
+      <div className="relative flex items-end justify-between gap-4 p-5">
+        <div className="min-w-0">
+          <p className="eyebrow mb-2 flex items-center gap-2" style={{ color: live ? '#22c55e' : undefined }}>
+            {live && <span className="live-dot h-2 w-2 rounded-full bg-green-bright" />}
+            {label}
+          </p>
+          <p className="display text-[22px] leading-tight text-ink">{fmtDate(date, 'day')}</p>
+          <p className="mt-1.5 text-sm text-mist">
+            {session
+              ? `${plural(session.playerIds.length, 'player')} · ${formatOf(session)}-a-side`
+              : isOnBreak ? 'Enjoy the rest.' : 'No teams picked yet'}
+          </p>
+        </div>
 
-      <div className="px-5 py-4 relative">
-        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#64748b] mb-1">
-          {isMatchday ? '🟢 Today' : 'Next Matchday'}
-        </p>
-
-        <div className="flex items-end justify-between">
-          <div>
+        {!live && !fullTime && (
+          <div className="shrink-0 text-right">
             <p
-              className="text-base font-bold text-[#f1f5f9] uppercase leading-tight"
-              style={{ fontFamily: "'Oswald', sans-serif" }}
+              className="num text-[72px]"
+              style={{
+                color: daysUntil <= 2 ? '#22c55e' : '#f1f5f9',
+                textShadow: daysUntil <= 2 ? '0 0 34px rgba(22,163,74,0.5)' : 'none',
+              }}
             >
-              {fmtDay(nextSundayStr)}
+              {daysUntil}
             </p>
-            {scheduledSession ? (
-              <p className="text-xs text-[#64748b] mt-1">
-                {scheduledSession.playerIds.length} players confirmed
-              </p>
-            ) : (
-              <Link to="/lineups" className="text-xs text-[#334155] hover:text-[#16a34a] transition-colors mt-1 block">
-                No session scheduled →
-              </Link>
-            )}
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+              {daysUntil === 1 ? 'day to go' : 'days to go'}
+            </p>
           </div>
+        )}
+        {fullTime && <span className="display shrink-0 text-3xl text-blue-bright">FT</span>}
+      </div>
 
-          {isMatchday ? (
-            <div className="text-right">
-              <p
-                className="text-3xl font-bold uppercase leading-none"
-                style={{ fontFamily: "'Oswald', sans-serif", color: '#16a34a', textShadow: '0 0 20px #16a34a66' }}
-              >
-                Matchday!
-              </p>
-              <div className="flex justify-end gap-1 mt-1">
-                <span
-                  className="w-2 h-2 rounded-full inline-block animate-pulse"
-                  style={{ background: '#16a34a', boxShadow: '0 0 6px #16a34a' }}
-                />
-              </div>
-            </div>
+      {!isOnBreak && !fullTime && (
+        <div className="relative border-t border-line/70 px-5 py-3">
+          {session ? (
+            <Link to="/lineups" className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-green-bright">
+              {live ? 'Enter the score' : 'View the lineup'}
+              <ChevronRightIcon className="w-4 h-4" />
+            </Link>
           ) : (
-            <div className="text-right">
-              <p
-                className="leading-none font-bold"
-                style={{
-                  fontFamily: "'Oswald', sans-serif",
-                  fontSize: daysUntil <= 2 ? 56 : 48,
-                  color: daysUntil <= 2 ? '#22c55e' : '#f1f5f9',
-                  textShadow: daysUntil <= 2 ? '0 0 24px #16a34a55' : 'none',
-                }}
-              >
-                {daysUntil}
-              </p>
-              <p className="text-[10px] uppercase tracking-widest text-[#64748b]">
-                {daysUntil === 1 ? 'day to go' : 'days to go'}
-              </p>
-            </div>
+            <Link to="/balance" className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-green-bright">
+              Pick the teams
+              <ChevronRightIcon className="w-4 h-4" />
+            </Link>
           )}
         </div>
-      </div>
-    </div>
+      )}
+    </section>
   )
 }
 
-// ─── Last result card ──────────────────────────────────────────
-function LastResultCard({ session, players, playerName }) {
-  const { scoreA, scoreB } = session.result
-  const aWon = scoreA > scoreB
-  const bWon = scoreB > scoreA
-  const isDraw = scoreA === scoreB
-  const motmPlayer = session.motm ? players.find((p) => p.id === session.motm) : null
-
-  const teamA = session.teams?.teamA ?? []
-  const teamB = session.teams?.teamB ?? []
+// ─── Last result ───────────────────────────────────────────────
+function LastResultCard({ session }) {
+  const { playerById } = useApp()
+  const winner = winnerOf(session)
+  const motmPlayers = motmIdsOf(session).map((id) => playerById.get(id)).filter(Boolean)
+  const verdict = { A: ['Team A win', 'chip-green'], B: ['Team B win', 'chip-blue'], D: ['Draw', 'chip-amber'] }[winner]
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: '#141920', border: '1px solid #252d3a' }}>
-      {/* card header */}
-      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #252d3a' }}>
+    <section className="card overflow-hidden">
+      <div className="card-head justify-between">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#64748b]"
-            style={{ fontFamily: "'Oswald', sans-serif" }}>
-            Last Result
-          </p>
-          <p className="text-xs text-[#334155] mt-0.5">{fmtShort(session.date)}</p>
-        </div>
-        <span
-          className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full"
-          style={{
-            background: isDraw ? '#3d2c0044' : aWon ? '#14532d' : '#1e3a5f',
-            color: isDraw ? '#f59e0b' : aWon ? '#22c55e' : '#60a5fa',
-            border: `1px solid ${isDraw ? '#f59e0b44' : aWon ? '#16a34a55' : '#3b82f655'}`,
-          }}
-        >
-          {isDraw ? 'Draw' : aWon ? 'Team A Win' : 'Team B Win'}
-        </span>
-      </div>
-
-      {/* scoreline */}
-      <div className="flex items-center px-4 py-5 gap-2">
-        {/* Team A */}
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#16a34a' }}>Team A</p>
-          {teamA.slice(0, 5).map((id) => (
-            <p key={id} className="text-xs leading-relaxed truncate" style={{ color: session.motm === id ? '#fbbf24' : '#94a3b8' }}>
-              {session.motm === id && '⭐ '}
-              {playerName(id)}
-              {session.result.goals?.[id] > 0 && (
-                <span className="text-[#22c55e] ml-1">⚽{session.result.goals[id]}</span>
-              )}
-            </p>
-          ))}
-          {teamA.length > 5 && <p className="text-[10px] text-[#334155]">+{teamA.length - 5} more</p>}
-        </div>
-
-        {/* Score */}
-        <div className="flex flex-col items-center shrink-0 px-2">
-          <div className="flex items-baseline gap-1">
-            <span
-              className="font-bold leading-none"
-              style={{
-                fontFamily: "'Oswald', sans-serif",
-                fontSize: 52,
-                color: aWon ? '#22c55e' : isDraw ? '#94a3b8' : '#334155',
-                textShadow: aWon ? '0 0 20px #16a34a44' : 'none',
-              }}
-            >
-              {scoreA}
-            </span>
-            <span className="text-2xl font-bold text-[#252d3a]" style={{ fontFamily: "'Oswald', sans-serif" }}>–</span>
-            <span
-              className="font-bold leading-none"
-              style={{
-                fontFamily: "'Oswald', sans-serif",
-                fontSize: 52,
-                color: bWon ? '#60a5fa' : isDraw ? '#94a3b8' : '#334155',
-                textShadow: bWon ? '0 0 20px #3b82f644' : 'none',
-              }}
-            >
-              {scoreB}
-            </span>
-          </div>
-          <p className="text-[9px] uppercase tracking-widest text-[#334155] mt-1">
-            {session.playerIds.length} players
+          <h2 className="eyebrow text-mist">Last result</h2>
+          <p className="mt-0.5 text-xs text-muted">
+            {fmtDate(session.date)}
+            {session.weather && <> · {weatherEmoji(session.weather.code)} {session.weather.tempC}°C</>}
           </p>
         </div>
-
-        {/* Team B */}
-        <div className="flex-1 min-w-0 text-right">
-          <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#3b82f6' }}>Team B</p>
-          {teamB.slice(0, 5).map((id) => (
-            <p key={id} className="text-xs leading-relaxed truncate" style={{ color: session.motm === id ? '#fbbf24' : '#94a3b8' }}>
-              {session.result.goals?.[id] > 0 && (
-                <span className="text-[#60a5fa] mr-1">⚽{session.result.goals[id]}</span>
-              )}
-              {playerName(id)}
-              {session.motm === id && ' ⭐'}
-            </p>
-          ))}
-          {teamB.length > 5 && <p className="text-[10px] text-[#334155]">+{teamB.length - 5} more</p>}
-        </div>
+        <span className={`chip ${verdict[1]}`}>{verdict[0]}</span>
       </div>
 
-      {/* MOTM footer */}
-      {motmPlayer && (
+      <div className="px-4 py-5">
+        <MatchFace session={session} max={7} scoreSize={46} />
+      </div>
+
+      {motmPlayers.length > 0 && (
         <div
-          className="flex items-center gap-2 px-4 py-2.5"
-          style={{ borderTop: '1px solid #252d3a', background: 'linear-gradient(to right, #2d1f00, #141920)' }}
+          className="flex items-center gap-3 border-t border-gold-mid/50 px-4 py-3"
+          style={{ background: 'linear-gradient(90deg, #2d1f00, #141920)' }}
         >
-          <span className="text-sm">⭐</span>
-          <p className="text-xs text-[#a16207]">
-            Man of the Match —{' '}
-            <span className="font-bold text-[#fbbf24]" style={{ fontFamily: "'Oswald', sans-serif" }}>
-              {motmPlayer.name}
-            </span>
-          </p>
+          <div className="flex shrink-0 -space-x-1.5">
+            {motmPlayers.map((p) => <PlayerAvatar key={p.id} player={p} size={30} ring="#fbbf24" />)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gold-mid">
+              {motmPlayers.length > 1 ? 'Joint ' : ''}Man of the Match
+            </p>
+            <p className="display motm-shimmer truncate text-lg leading-tight text-gold">
+              {motmPlayers.map((p) => p.name).join(' & ')}
+            </p>
+          </div>
+          <span className="ml-auto text-xl" aria-hidden="true">⭐</span>
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
-// ─── Leader card ───────────────────────────────────────────────
-function LeaderCard({ title, icon, accentColor, dimColor, player, stat, emptyText }) {
+// ─── Season leaders (tabbed) ───────────────────────────────────
+const BOARD_TABS = [
+  { value: 'motm', label: 'MOTM' },
+  { value: 'win', label: 'Win rate' },
+  { value: 'reliable', label: 'Reliable' },
+]
+
+function LeadersCard({ boards }) {
+  const { firePlayerIds } = useApp()
+  const [tab, setTab] = useState('motm')
+  const board = boards[tab]
+
   return (
-    <div
-      className="rounded-2xl p-4 flex flex-col gap-2"
-      style={{
-        background: player ? `linear-gradient(135deg, ${dimColor}, #141920)` : '#141920',
-        border: `1px solid ${player ? accentColor + '44' : '#252d3a'}`,
-      }}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className="text-sm leading-none">{icon}</span>
-        <p
-          className="text-[10px] font-bold uppercase tracking-[0.2em]"
-          style={{ fontFamily: "'Oswald', sans-serif", color: player ? accentColor : '#334155' }}
-        >
-          {title}
-        </p>
+    <section className="card overflow-hidden">
+      <div className="card-head justify-between">
+        <h2 className="eyebrow text-mist">Season leaders</h2>
+        <span className="text-[11px] text-muted">{board.unit}</span>
       </div>
-      {player ? (
-        <>
-          <p
-            className="font-bold uppercase leading-tight truncate"
-            style={{ fontFamily: "'Oswald', sans-serif", fontSize: 18, color: accentColor }}
-          >
-            {player.name}
-          </p>
-          <p className="text-xs font-semibold" style={{ color: accentColor + 'cc' }}>{stat}</p>
-        </>
+      <div className="px-3 pt-3">
+        <Segmented options={BOARD_TABS} value={tab} onChange={setTab} />
+      </div>
+      {board.rows.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted">{board.empty}</p>
       ) : (
-        <p className="text-xs text-[#334155] mt-1">{emptyText}</p>
+        <ol className="p-2">
+          {board.rows.map((row) => {
+            const lead = row.rank === 1
+            return (
+              <li key={row.player.id}>
+                <Link
+                  to={`/player/${row.player.id}`}
+                  className="press flex items-center gap-3 rounded-2xl px-2 py-2"
+                  style={lead ? { background: `linear-gradient(90deg, ${board.color}1f, transparent)` } : undefined}
+                >
+                  <span className="num w-5 shrink-0 pt-1 text-center text-xl" style={{ color: lead ? board.color : '#475569' }}>
+                    {row.rank}
+                  </span>
+                  <PlayerAvatar player={row.player} size={lead ? 40 : 30} ring={lead ? board.color : null} />
+                  <span className={`display min-w-0 flex-1 truncate ${lead ? 'text-xl text-ink' : 'text-base text-soft'}`}>
+                    {row.player.name}
+                    {firePlayerIds.has(row.player.id) && <span className="ml-1.5 align-middle"><FireIcon size={13} /></span>}
+                  </span>
+                  <span className="num shrink-0 pt-1" style={{ fontSize: lead ? 34 : 24, color: lead ? board.color : '#94a3b8' }}>
+                    {row.label}
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
+        </ol>
       )}
-    </div>
+    </section>
   )
 }
 
-// ─── Season tile ───────────────────────────────────────────────
-function SeasonTile({ value, label, color }) {
+// ─── Streak column ─────────────────────────────────────────────
+function StreakCard({ title, icon, rows, color, unit, empty }) {
   return (
-    <div
-      className="rounded-xl p-3 text-center"
-      style={{ background: '#141920', border: `1px solid ${color}22` }}
-    >
-      <p
-        className="text-3xl font-bold leading-none"
-        style={{ fontFamily: "'Oswald', sans-serif", color }}
-      >
-        {value}
-      </p>
-      <p className="text-[10px] uppercase tracking-wider text-[#64748b] mt-1">{label}</p>
-    </div>
-  )
-}
-
-// ─── Form dot ──────────────────────────────────────────────────
-const FORM = {
-  A: { bg: '#14532d', color: '#22c55e', border: '#16a34a', label: 'W (A)' },
-  B: { bg: '#1e3a5f', color: '#60a5fa', border: '#3b82f6', label: 'W (B)' },
-  D: { bg: '#3d2c00', color: '#fbbf24', border: '#f59e0b', label: 'D' },
-}
-
-function FormDot({ result }) {
-  const s = FORM[result]
-  return (
-    <div
-      className="flex items-center justify-center rounded-lg font-bold text-xs"
-      style={{
-        width: 36, height: 36,
-        background: s.bg,
-        color: s.color,
-        border: `1px solid ${s.border}44`,
-        fontFamily: "'Oswald', sans-serif",
-      }}
-      title={s.label}
-    >
-      {result === 'D' ? 'D' : 'W'}
-    </div>
-  )
-}
-
-// ─── Empty state card ──────────────────────────────────────────
-function EmptyCard({ label, sub, action }) {
-  return (
-    <div
-      className="rounded-2xl px-5 py-6 text-center"
-      style={{ background: '#141920', border: '1px solid #252d3a' }}
-    >
-      <p className="text-sm font-semibold text-[#64748b]">{label}</p>
-      <p className="text-xs text-[#334155] mt-1">{sub}</p>
-      {action && (
-        <Link
-          to={action.to}
-          className="inline-block mt-3 text-sm font-bold text-[#16a34a] hover:text-[#22c55e] transition-colors"
-        >
-          {action.label}
-        </Link>
+    <section className="card p-3.5">
+      <h2 className="eyebrow mb-3 flex items-center gap-1.5" style={{ color }}>{icon}{title}</h2>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted">{empty}</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((row) => (
+            <li key={row.player.id}>
+              <Link to={`/player/${row.player.id}`} className="flex items-center gap-2">
+                <PlayerAvatar player={row.player} size={22} />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-soft">{row.player.name}</span>
+                <span className="num pt-0.5 text-lg" style={{ color }}>{row.label}{unit}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
-    </div>
+    </section>
   )
 }

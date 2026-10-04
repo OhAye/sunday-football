@@ -1,344 +1,169 @@
 import { useState } from 'react'
-import { useApp } from '../context/AppContext'
+import { Link } from 'react-router-dom'
+import { useApp } from '../context/app-context'
+import { POSITIONS, POSITION_META, REGULAR_THRESHOLD, positionOf } from '../lib/constants'
+import { pct, plural } from '../lib/format'
+import { EmptyState, FormDots, Loading, PageHeader, Pills, WinPill } from '../components/ui'
+import { CameraIcon, ChevronDownIcon, EditIcon, LockIcon, PlusIcon, SearchIcon } from '../components/icons'
+import { AddPlayerSheet, AvatarSheet, EditPlayerSheet } from '../components/squad/PlayerSheets'
+import PlayerAvatar from '../components/PlayerAvatar'
+import FireIcon from '../components/FireIcon'
+import FrostIcon from '../components/FrostIcon'
 
-const POSITIONS = ['GK', 'DEF', 'MID', 'FWD']
+const POSITION_FILTERS = [{ value: 'ALL', label: 'All' }, ...POSITIONS.map((p) => ({ value: p, label: p }))]
 
-const POSITION_META = {
-  GK:  { label: 'GK',  full: 'Goalkeeper', color: '#f59e0b', bg: '#3d2c00', border: '#f59e0b44' },
-  DEF: { label: 'DEF', full: 'Defender',   color: '#3b82f6', bg: '#1e3a5f', border: '#3b82f644' },
-  MID: { label: 'MID', full: 'Midfielder', color: '#16a34a', bg: '#14532d', border: '#16a34a44' },
-  FWD: { label: 'FWD', full: 'Forward',    color: '#ef4444', bg: '#3d1515', border: '#ef444444' },
-}
-
-const POSITION_ORDER = { GK: 0, DEF: 1, MID: 2, FWD: 3 }
-
+// Squad tab. Anyone can browse and update their own photo (PIN); admins can add and edit players.
 export default function Players() {
-  const { players, addPlayer, removePlayer, getPlayerStats } = useApp()
-  const [showForm, setShowForm] = useState(false)
-  const [filter, setFilter] = useState('ALL')
+  const { players, sessionsLoaded, isAdmin, getPlayerStats, getAttendance, firePlayerIds, frostPlayerIds } = useApp()
+  const [query, setQuery] = useState('')
+  const [position, setPosition] = useState('ALL')
+  const [showOthers, setShowOthers] = useState(false)
+  const [sheet, setSheet] = useState(null) // null | { type: 'add' } | { type: 'edit' | 'avatar', id }
 
-  const sorted = [...players].sort((a, b) => {
-    const pd = POSITION_ORDER[a.position ?? 'MID'] - POSITION_ORDER[b.position ?? 'MID']
-    return pd !== 0 ? pd : a.name.localeCompare(b.name)
-  })
+  if (!sessionsLoaded) return <Loading />
 
-  const filtered = filter === 'ALL' ? sorted : sorted.filter((p) => p.position === filter)
+  const q = query.trim().toLowerCase()
+  const rows = players
+    .filter((p) => (position === 'ALL' || positionOf(p) === position) && (!q || p.name.toLowerCase().includes(q)))
+    .map((p) => ({ player: p, stats: getPlayerStats(p.id), attendance: getAttendance(p.id) }))
+    .sort((a, b) => a.player.name.localeCompare(b.player.name))
+  const regulars = rows.filter((r) => r.stats.played >= REGULAR_THRESHOLD)
+  const others = rows.filter((r) => r.stats.played < REGULAR_THRESHOLD)
+  const othersOpen = showOthers || !!q // searching should never hide a match behind a collapsed group
 
-  const counts = POSITIONS.reduce((acc, pos) => {
-    acc[pos] = players.filter((p) => p.position === pos).length
-    return acc
-  }, {})
+  // Look the player up fresh so an open sheet always shows current data
+  const sheetPlayer = sheet?.id ? players.find((p) => p.id === sheet.id) : null
+  const card = (r) => (
+    <PlayerCard
+      key={r.player.id} {...r} isAdmin={isAdmin}
+      fire={firePlayerIds.has(r.player.id)} frost={frostPlayerIds.has(r.player.id)}
+      onAvatar={() => setSheet({ type: 'avatar', id: r.player.id })}
+      onEdit={() => setSheet({ type: 'edit', id: r.player.id })}
+    />
+  )
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <header className="px-5 pt-10 pb-5" style={{ background: 'linear-gradient(to bottom, #0f1a12, #0b0f14)' }}>
-        <p className="text-[#16a34a] text-xs font-semibold tracking-[0.25em] uppercase mb-1">Squad</p>
-        <div className="flex items-end justify-between">
-          <div>
-            <h1
-              className="text-3xl font-bold uppercase text-[#f1f5f9] leading-none"
-              style={{ fontFamily: "'Oswald', sans-serif" }}
-            >
-              Players
-            </h1>
-            <p className="text-[#64748b] text-sm mt-1">{players.length} in the squad</p>
-          </div>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-xl transition-colors"
-            style={{
-              fontFamily: "'Oswald', sans-serif",
-              background: showForm ? '#1c2330' : '#16a34a',
-              color: showForm ? '#64748b' : '#fff',
-              border: showForm ? '1px solid #252d3a' : 'none',
-            }}
-          >
-            {showForm ? 'Cancel' : '+ Add Player'}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        kicker="Squad"
+        title="Players"
+        sub={`${plural(players.length, 'player')} · ${players.filter((p) => p.injured).length} injured`}
+        action={
+          isAdmin ? (
+            <button type="button" className="btn btn-primary" onClick={() => setSheet({ type: 'add' })}>
+              <PlusIcon className="w-4 h-4" strokeWidth={2.4} /> Add
+            </button>
+          ) : (
+            <Link to="/admin" aria-label="Admin" className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-surface text-muted">
+              <LockIcon className="w-4 h-4" />
+            </Link>
+          )
+        }
+      />
 
-      <div className="px-4 space-y-4 pb-4">
-        {/* Add player form */}
-        {showForm && (
-          <AddPlayerForm
-            players={players}
-            onSave={(data) => { addPlayer(data); setShowForm(false) }}
-            onCancel={() => setShowForm(false)}
-          />
-        )}
-
-        {/* Position filter tabs */}
-        {players.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-            <FilterTab label="All" count={players.length} active={filter === 'ALL'} onClick={() => setFilter('ALL')} color="#16a34a" />
-            {POSITIONS.map((pos) => (
-              counts[pos] > 0 && (
-                <FilterTab
-                  key={pos}
-                  label={pos}
-                  count={counts[pos]}
-                  active={filter === pos}
-                  onClick={() => setFilter(pos)}
-                  color={POSITION_META[pos].color}
-                />
-              )
-            ))}
-          </div>
-        )}
-
-        {/* Player grid */}
-        {filtered.length === 0 ? (
-          <p className="text-[#64748b] text-sm pt-2">
-            {players.length === 0 ? 'No players yet. Tap + Add Player to get started.' : 'No players in this position.'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {filtered.map((player) => (
-              <PlayerCard key={player.id} player={player} stats={getPlayerStats(player.id)} onRemove={() => removePlayer(player.id)} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ─── Add Player Form ─────────────────────────────────────────── */
-
-function AddPlayerForm({ players, onSave, onCancel }) {
-  const [name, setName] = useState('')
-  const [position, setPosition] = useState('MID')
-  const [number, setNumber] = useState('')
-  const [error, setError] = useState('')
-
-  function handleSubmit(e) {
-    e.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed) { setError('Name is required.'); return }
-    if (players.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
-      setError('A player with that name already exists.')
-      return
-    }
-    if (number && (isNaN(Number(number)) || Number(number) < 1 || Number(number) > 99)) {
-      setError('Shirt number must be between 1 and 99.')
-      return
-    }
-    onSave({ name: trimmed, position, number: number || null })
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-2xl p-4 space-y-4"
-      style={{ background: '#141920', border: '1px solid #16a34a55' }}
-    >
-      <h2
-        className="text-sm font-bold uppercase tracking-[0.2em] text-[#f1f5f9]"
-        style={{ fontFamily: "'Oswald', sans-serif" }}
-      >
-        New Player
-      </h2>
-
-      {/* Name */}
-      <div className="space-y-1">
-        <label className="text-[10px] uppercase tracking-widest text-[#64748b] font-semibold">Name</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => { setName(e.target.value); setError('') }}
-          placeholder="e.g. Marcus"
-          autoFocus
-          className="w-full rounded-xl px-4 py-3 text-sm text-[#f1f5f9] placeholder-[#334155] focus:outline-none focus:ring-2 focus:ring-[#16a34a]"
-          style={{ background: '#1c2330', border: '1px solid #252d3a' }}
-        />
-      </div>
-
-      {/* Position selector */}
-      <div className="space-y-1">
-        <label className="text-[10px] uppercase tracking-widest text-[#64748b] font-semibold">Position</label>
-        <div className="grid grid-cols-4 gap-2">
-          {POSITIONS.map((pos) => {
-            const meta = POSITION_META[pos]
-            const active = position === pos
-            return (
-              <button
-                key={pos}
-                type="button"
-                onClick={() => setPosition(pos)}
-                className="py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all"
-                style={{
-                  fontFamily: "'Oswald', sans-serif",
-                  background: active ? meta.bg : '#1c2330',
-                  color: active ? meta.color : '#64748b',
-                  border: `1px solid ${active ? meta.color : '#252d3a'}`,
-                  boxShadow: active ? `0 0 10px ${meta.color}33` : 'none',
-                }}
-              >
-                {pos}
-              </button>
-            )
-          })}
-        </div>
-        <p className="text-[10px] text-[#64748b]">{POSITION_META[position].full}</p>
-      </div>
-
-      {/* Shirt number */}
-      <div className="space-y-1">
-        <label className="text-[10px] uppercase tracking-widest text-[#64748b] font-semibold">
-          Shirt Number <span className="text-[#334155] normal-case tracking-normal">(optional)</span>
+      <div className="space-y-4 px-4">
+        <label className="relative block">
+          <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search the squad" aria-label="Search the squad" className="field pl-10" />
         </label>
-        <input
-          type="number"
-          value={number}
-          onChange={(e) => { setNumber(e.target.value); setError('') }}
-          placeholder="1 – 99"
-          min="1"
-          max="99"
-          className="w-24 rounded-xl px-4 py-3 text-sm text-[#f1f5f9] placeholder-[#334155] focus:outline-none focus:ring-2 focus:ring-[#16a34a] text-center"
-          style={{
-            fontFamily: "'Oswald', sans-serif",
-            background: '#1c2330',
-            border: '1px solid #252d3a',
-          }}
-        />
-      </div>
+        <Pills options={POSITION_FILTERS} value={position} onChange={setPosition} />
 
-      {error && <p className="text-red-400 text-xs">{error}</p>}
-
-      <button
-        type="submit"
-        className="w-full py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors"
-        style={{ fontFamily: "'Oswald', sans-serif", background: '#16a34a', color: '#fff' }}
-      >
-        Add to Squad
-      </button>
-    </form>
-  )
-}
-
-/* ─── Player Card ─────────────────────────────────────────────── */
-
-function PlayerCard({ player, stats, onRemove }) {
-  const pos = player.position ?? 'MID'
-  const meta = POSITION_META[pos]
-
-  function handleDelete(e) {
-    e.stopPropagation()
-    if (confirm(`Remove ${player.name} from the squad?`)) onRemove()
-  }
-
-  return (
-    <div
-      className="rounded-2xl overflow-hidden flex flex-col relative"
-      style={{ background: '#141920', border: '1px solid #252d3a' }}
-    >
-      {/* Top band with shirt number + position */}
-      <div
-        className="px-3 pt-3 pb-2 flex items-start justify-between"
-        style={{ background: meta.bg, borderBottom: `1px solid ${meta.border}` }}
-      >
-        {/* Shirt number */}
-        <span
-          className="text-4xl font-bold leading-none"
-          style={{ fontFamily: "'Oswald', sans-serif", color: meta.color, opacity: player.number ? 1 : 0.2 }}
-        >
-          {player.number ?? '?'}
-        </span>
-
-        {/* Position badge + delete */}
-        <div className="flex flex-col items-end gap-2">
-          <button
-            onClick={handleDelete}
-            className="w-6 h-6 flex items-center justify-center rounded-full transition-colors"
-            style={{ background: '#00000033', color: meta.color }}
-            aria-label="Remove player"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-3 h-3">
-              <path d="M3 3l10 10M13 3L3 13" />
-            </svg>
-          </button>
-          <span
-            className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full"
-            style={{ background: '#00000044', color: meta.color, border: `1px solid ${meta.color}55` }}
-          >
-            {pos}
-          </span>
-        </div>
-      </div>
-
-      {/* Name */}
-      <div className="px-3 pt-2.5 pb-1">
-        <p
-          className="text-base font-bold uppercase leading-tight text-[#f1f5f9] truncate"
-          style={{ fontFamily: "'Oswald', sans-serif" }}
-        >
-          {player.name}
-        </p>
-      </div>
-
-      {/* Stats row */}
-      <div className="px-3 pb-3 mt-auto">
-        {stats.played > 0 ? (
-          <div className="flex items-center gap-2 mt-1">
-            <Stat label="P" value={stats.played} />
-            <span className="text-[#252d3a]">·</span>
-            <Stat label="W" value={stats.wins} color="#22c55e" />
-            <span className="text-[#252d3a]">·</span>
-            <Stat label="G" value={stats.goals} color="#60a5fa" />
-            {stats.played > 0 && (
-              <>
-                <span className="text-[#252d3a]">·</span>
-                <span
-                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-auto"
-                  style={{
-                    background: stats.wins / stats.played >= 0.6 ? '#14532d' : '#1c2330',
-                    color: stats.wins / stats.played >= 0.6 ? '#22c55e' : '#64748b',
-                  }}
-                >
-                  {Math.round((stats.wins / stats.played) * 100)}%
-                </span>
-              </>
-            )}
-          </div>
+        {players.length === 0 ? (
+          <EmptyState icon="👟" title="No players yet" body={isAdmin ? 'Add your first player to get started.' : 'An admin needs to add the squad.'} />
+        ) : rows.length === 0 ? (
+          <EmptyState icon="🔍" title="No one found" body="Try a different name or position." />
         ) : (
-          <p className="text-[10px] text-[#334155] mt-1">No games yet</p>
+          <>
+            {regulars.length > 0 && (
+              <section>
+                <GroupHeading title="Regulars" note={`${REGULAR_THRESHOLD}+ games`} count={regulars.length} />
+                <div className="stagger grid grid-cols-2 gap-2.5">{regulars.map(card)}</div>
+              </section>
+            )}
+            {others.length > 0 && (
+              <section>
+                <button type="button" onClick={() => setShowOthers((v) => !v)} aria-expanded={othersOpen} className="w-full text-left">
+                  <GroupHeading
+                    title="Occasional" note={`under ${REGULAR_THRESHOLD} games`} count={others.length}
+                    trailing={!q && <ChevronDownIcon className={`w-4 h-4 text-muted transition-transform ${othersOpen ? 'rotate-180' : ''}`} />}
+                  />
+                </button>
+                {othersOpen && <div className="grid grid-cols-2 gap-2.5">{others.map(card)}</div>}
+              </section>
+            )}
+          </>
         )}
       </div>
+
+      {sheet?.type === 'add' && isAdmin && <AddPlayerSheet onClose={() => setSheet(null)} />}
+      {sheet?.type === 'edit' && isAdmin && sheetPlayer && <EditPlayerSheet player={sheetPlayer} onClose={() => setSheet(null)} />}
+      {sheet?.type === 'avatar' && sheetPlayer && <AvatarSheet player={sheetPlayer} onClose={() => setSheet(null)} />}
     </div>
   )
 }
 
-function Stat({ label, value, color = '#64748b' }) {
+function GroupHeading({ title, note, count, trailing }) {
   return (
-    <span className="text-[10px] font-semibold" style={{ color }}>
-      {value}<span className="text-[#334155] ml-0.5">{label}</span>
-    </span>
+    <div className="mb-3 flex items-center gap-2">
+      <h2 className="eyebrow text-soft">{title}</h2>
+      <span className="chip chip-neutral">{count}</span>
+      <span className="text-[11px] text-muted">{note}</span>
+      <span className="ml-auto">{trailing}</span>
+    </div>
   )
 }
 
-/* ─── Filter Tab ──────────────────────────────────────────────── */
+function PlayerCard({ player, stats, attendance, isAdmin, fire, frost, onAvatar, onEdit }) {
+  const pos = positionOf(player)
+  const meta = POSITION_META[pos]
+  const winPct = pct(stats.wins, stats.played)
 
-function FilterTab({ label, count, active, onClick, color }) {
   return (
-    <button
-      onClick={onClick}
-      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all"
-      style={{
-        fontFamily: "'Oswald', sans-serif",
-        background: active ? color + '22' : '#141920',
-        color: active ? color : '#64748b',
-        border: `1px solid ${active ? color : '#252d3a'}`,
-      }}
+    <article
+      className="card relative overflow-hidden p-3"
+      style={player.injured ? { borderColor: 'rgba(239,68,68,0.4)' } : undefined}
     >
-      {label}
-      <span
-        className="text-[10px] px-1 rounded-full"
-        style={{ background: active ? color + '33' : '#1c2330', color: active ? color : '#334155' }}
-      >
-        {count}
-      </span>
-    </button>
+      {/* position colour bar */}
+      <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px]" style={{ background: meta.color }} />
+
+      <div className="flex items-start gap-2.5">
+        <button type="button" onClick={onAvatar} aria-label={`Change ${player.name}'s photo`} className="relative shrink-0 rounded-full">
+          <PlayerAvatar player={player} size={46} ring={`${meta.color}aa`} />
+          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface bg-raised text-mist">
+            <CameraIcon className="w-2.5 h-2.5" strokeWidth={2.2} />
+          </span>
+        </button>
+        <Link to={`/player/${player.id}`} className="min-w-0 flex-1">
+          <p className="display truncate text-[17px] leading-tight text-ink">{player.name}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: meta.color }}>
+            {pos}
+            {player.number && <span className="text-muted">#{player.number}</span>}
+            {fire && <FireIcon size={11} />}
+            {frost && <FrostIcon size={11} />}
+          </p>
+        </Link>
+        {isAdmin && (
+          <button type="button" onClick={onEdit} aria-label={`Edit ${player.name}`}
+            className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted active:bg-raised">
+            <EditIcon className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      <Link to={`/player/${player.id}`} className="mt-3 block">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-mist">
+            <span className="font-semibold text-ink">{stats.played}</span> {stats.played === 1 ? 'game' : 'games'}
+          </p>
+          {player.injured ? <span className="chip chip-red">Out</span> : <WinPill pct={winPct} />}
+        </div>
+        <div className="mt-2.5 flex h-2 items-center">
+          {attendance.last10.length > 0
+            ? <FormDots items={attendance.last10} size={8} />
+            : <span className="text-[10px] text-faint">No recent games</span>}
+        </div>
+      </Link>
+    </article>
   )
 }
