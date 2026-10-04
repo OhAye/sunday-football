@@ -50,6 +50,7 @@ src/
 │   ├── format.js             # Dates (toYMD, fmtDate, getNextMatchday…), pct, plural, slugify
 │   ├── stats.js              # Pure stat helpers: outcomeFor, tally, streaksFrom, computeH2H, formatOf
 │   ├── balance.js            # Team balancer algorithm
+│   ├── parseTeams.js         # Parses a pasted WhatsApp teams message and matches names to players
 │   ├── share.js              # WhatsApp message builders + openers
 │   ├── weather.js            # Open-Meteo match-day weather
 │   └── avatar.js             # Avatar resize + upload to Supabase Storage
@@ -67,7 +68,7 @@ src/
 │   ├── MatchFace.jsx         # Team A · scoreboard · Team B (Home + Games)
 │   ├── PlayerAvatar.jsx      # Shared avatar (photo or initial)
 │   ├── FireIcon.jsx / FrostIcon.jsx
-│   ├── match/                # MatchCard, MatchForm, PitchBuilder, TeamBuilder, ScoreStepper, formations.js
+│   ├── match/                # MatchCard, MatchForm, PitchBuilder, TeamBuilder, PasteTeamsSheet, ScoreStepper, formations.js
 │   └── squad/PlayerSheets.jsx# AddPlayerSheet, EditPlayerSheet, AvatarSheet
 └── pages/
     ├── Dashboard.jsx         # Home: next match, last result, season tiles, leaders, streaks
@@ -117,6 +118,7 @@ No RLS is configured (trusted team app, no auth). The admin PIN and avatar PINs 
   avatarUrl: null,           // Supabase Storage public URL or null
   avatarPin: null,           // 4-digit PIN protecting the avatar (non-admin users)
   injured: false,            // hidden from the team picker while true
+  aliases: ['Shehzad'],      // other spellings seen in pasted WhatsApp messages (optional)
 
   // Legacy stats (pre-Supabase, from WhatsApp match records). May be negative (correction offsets).
   legacyMotm: 22,            // all-time MOTM count
@@ -171,6 +173,9 @@ Everything on the Dashboard must reflect the **current calendar year only**: sea
 - Everyday jobs are inline on the match card: enter score, award MOTM (shows the vote tally with "Use vote"), share vote link, write report, share teams, add weather.
 - Lineup changes and **delete** live in the match editor (edit button), behind a confirm sheet.
 - Editing preserves `result.goals` and the `scoreKnown: false` flag unless the score itself changes.
+
+### Paste teams from WhatsApp
+The match editor has a "Paste teams from WhatsApp" button (`PasteTeamsSheet`). `parseTeamsMessage` in `lib/parseTeams.js` finds the last `… V …` line (or two blocks split by a lone "v"), splits it into names (multi-word names are recognised from the squad, aliases and the message's numbered sign-up list; a lone letter joins the name before it) and matches each to a player: exact name or alias → `exact`; one clear fuzzy match → `guess` (shown amber for checking); otherwise `unknown` (user picks or leaves out). Confirmed guesses and manual picks are saved to the player's `aliases`, so they match exactly next time. The parser is pure — test it with Node against sample messages.
 
 ### Team balancer
 Rating = all-time win % (50 for players under `MIN_RATED_GAMES`). `balanceTeams` gives equal-sized sides and swaps pairs to minimise the average gap; Shuffle adds jitter. Saving creates a match, or replaces the lineup of an unplayed match already on that date.

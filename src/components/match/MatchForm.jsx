@@ -5,10 +5,11 @@ import { DEFAULT_FORMAT } from '../../lib/constants'
 import { fmtDate, nearestSunday } from '../../lib/format'
 import { formatOf, hasScore } from '../../lib/stats'
 import { PageHeader, Segmented } from '../ui'
-import { TrashIcon } from '../icons'
+import { TrashIcon, WhatsAppIcon } from '../icons'
 import PitchBuilder from './PitchBuilder'
 import TeamBuilder from './TeamBuilder'
 import ScoreStepper from './ScoreStepper'
+import PasteTeamsSheet from './PasteTeamsSheet'
 
 const FORMAT_OPTIONS = [{ value: 7, label: '7-a-side' }, { value: 9, label: '9-a-side' }]
 const VIEW_OPTIONS = [{ value: 'pitch', label: 'Pitch' }, { value: 'list', label: 'List' }]
@@ -28,6 +29,17 @@ export default function MatchForm({ session, onDone }) {
   const [format, setFormat] = useState(() => (session ? formatOf(session) : DEFAULT_FORMAT))
   const [view, setView] = useState('pitch')
   const [busy, setBusy] = useState(false)
+  const [pasting, setPasting] = useState(false)
+  const [layoutKey, setLayoutKey] = useState(0) // bump to re-lay the pitch out after a bulk change
+
+  function applyPastedTeams(a, b) {
+    setTeamA(a)
+    setTeamB(b)
+    setFormat(Math.max(a.length, b.length) > 7 ? 9 : 7)
+    setLayoutKey((k) => k + 1)
+    setPasting(false)
+    toast(`Teams filled in · ${a.length} v ${b.length}`)
+  }
 
   const setTeams = (a, b) => { setTeamA(a); setTeamB(b) }
   const canSave = teamA.length > 0 && teamB.length > 0 && !!date && !busy
@@ -108,10 +120,14 @@ export default function MatchForm({ session, onDone }) {
           </div>
         </section>
 
+        <button type="button" className="btn btn-whatsapp btn-block" onClick={() => setPasting(true)}>
+          <WhatsAppIcon /> Paste teams from WhatsApp
+        </button>
+
         <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} />
 
         {view === 'pitch'
-          ? <PitchBuilder key={format} teamA={teamA} teamB={teamB} format={format} onChange={setTeams} />
+          ? <PitchBuilder key={`${format}-${layoutKey}`} teamA={teamA} teamB={teamB} format={format} onChange={setTeams} />
           : <TeamBuilder teamA={teamA} teamB={teamB} onChange={setTeams} />}
 
         <section className="card p-4">
@@ -144,6 +160,8 @@ export default function MatchForm({ session, onDone }) {
           </button>
         )}
       </div>
+
+      {pasting && <PasteTeamsSheet onApply={applyPastedTeams} onClose={() => setPasting(false)} />}
 
       {/* Sticky save bar */}
       <div
