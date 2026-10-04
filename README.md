@@ -1,16 +1,15 @@
-# React + Vite
+# Sunday FC
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Mobile-first web app for a Sunday 7-a-side group: pick balanced teams, record results, vote for Man of the Match, and follow the season stats.
 
-Currently, two official plugins are available:
+Live: https://ohaye.github.io/sunday-football/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+npm run dev      # local dev server (uses the live Supabase data)
+npm run lint
+npm run build
+npm run deploy   # build and publish to GitHub Pages
+```
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+React 19 · Vite 7 · Tailwind CSS v4 · Supabase. See [CLAUDE.md](CLAUDE.md) for architecture, data model and conventions.
