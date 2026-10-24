@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/app-context'
 import { useFeedback } from '../components/feedback-context'
-import { MIN_BALANCE_PLAYERS, MIN_RATED_GAMES, REGULAR_THRESHOLD, TEAM } from '../lib/constants'
+import { MIN_BALANCE_PLAYERS, MIN_RATED_GAMES, REGULAR_THRESHOLD, TEAM, formatForSize } from '../lib/constants'
 import { fmtDate, pct, upcomingSunday } from '../lib/format'
 import { balanceTeams, teamAverage } from '../lib/balance'
 import { Loading, PageHeader } from '../components/ui'
@@ -70,7 +70,7 @@ export default function Balancer() {
     const ok = existing
       ? await updateSession(existing.id, {
           playerIds: [...new Set([...teams.teamA, ...teams.teamB])],
-          teams: { teamA: teams.teamA, teamB: teams.teamB, format: Math.max(teams.teamA.length, teams.teamB.length) > 7 ? 9 : 7 },
+          teams: { teamA: teams.teamA, teamB: teams.teamB, format: formatForSize(Math.max(teams.teamA.length, teams.teamB.length)) },
         })
       : !!(await saveMatch({ date, teamA: teams.teamA, teamB: teams.teamB, scoreA: '', scoreB: '' }))
     setSaving(false)

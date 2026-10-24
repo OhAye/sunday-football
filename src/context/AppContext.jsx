@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { AppContext } from './app-context'
-import { MIN_STREAK_GAMES, STREAK_BADGE } from '../lib/constants'
+import { MIN_STREAK_GAMES, STREAK_BADGE, formatForSize } from '../lib/constants'
 import { currentYear, fmtDate, slugify, todayYMD } from '../lib/format'
 import { hasScore, motmIdsOf, outcomeFor, streaksFrom, tally } from '../lib/stats'
 import { scoreLine } from '../lib/share'
@@ -239,7 +239,7 @@ export function AppProvider({ children }) {
       id: crypto.randomUUID(),
       date,
       playerIds: [...new Set([...teamA, ...teamB])],
-      teams: { teamA, teamB, format: format ?? (Math.max(teamA.length, teamB.length) > 7 ? 9 : 7) },
+      teams: { teamA, teamB, format: format ?? formatForSize(Math.max(teamA.length, teamB.length)) },
       result: scored ? { scoreA: Number(scoreA), scoreB: Number(scoreB), scoreKnown: true } : null,
       motm: null,
       weather: scored ? await fetchWeatherForDate(date) : null,

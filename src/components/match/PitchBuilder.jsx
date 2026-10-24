@@ -12,7 +12,7 @@ const ids = (placed) => placed.map((p) => p.playerId)
 // Free-form pitch. Tap a player then tap the pitch, or drag. Whichever half a player lands in
 // decides their team: top = Team A, bottom = Team B. Drag off the pitch to send them back.
 //
-// Mount with key={format} so switching 7 ↔ 9-a-side re-lays the teams out.
+// Mount with key={format} so switching format (7 / 9 / 10-a-side) re-lays the teams out.
 export default function PitchBuilder({ teamA, teamB, format, onChange }) {
   const { players, playerById } = useApp()
   const [placedA, setPlacedA] = useState(() => layOutTeam(teamA, playerById, 'A', format))

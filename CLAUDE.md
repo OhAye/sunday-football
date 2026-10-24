@@ -46,7 +46,7 @@ src/
 │   └── app-context.js        # Context object + useApp() hook
 ├── lib/
 │   ├── supabase.js           # Supabase client (hardcoded public anon key — no .env needed)
-│   ├── constants.js          # Thresholds, BREAK, positions, team colours, win colours
+│   ├── constants.js          # Thresholds, BREAK, formats, positions, team colours, win colours
 │   ├── format.js             # Dates (toYMD, fmtDate, getNextMatchday…), pct, plural, slugify
 │   ├── stats.js              # Pure stat helpers: outcomeFor, tally, streaksFrom, computeH2H, formatOf
 │   ├── balance.js            # Team balancer algorithm
@@ -135,7 +135,7 @@ No RLS is configured (trusted team app, no auth). The admin PIN and avatar PINs 
   id: 'uuid',
   date: '2025-03-16',        // YYYY-MM-DD (local time)
   playerIds: ['h-omar', ...],
-  teams: { teamA: [...], teamB: [...], format: 7 },   // format 7 | 9 (inferred from sizes if absent); null if no lineup
+  teams: { teamA: [...], teamB: [...], format: 7 },   // format 7 | 9 | 10 (inferred from sizes if absent); null if no lineup
   result: { scoreA: 3, scoreB: 2, scoreKnown: true, goals: {} },
                              // scoreKnown false = winner known, score not recorded (shown as W / L)
                              // null = not played yet / no result
@@ -180,8 +180,11 @@ The match editor has a "Paste teams from WhatsApp" button (`PasteTeamsSheet`). `
 ### Team balancer
 Rating = all-time win % (50 for players under `MIN_RATED_GAMES`). `balanceTeams` gives equal-sized sides and swaps pairs to minimise the average gap; Shuffle adds jitter. Saving creates a match, or replaces the lineup of an unplayed match already on that date.
 
+### Match formats
+`FORMATS = [7, 9, 10]` in `lib/constants.js` is the single list of supported sizes; the editor's format picker, inference (`formatForSize`, `formatOf`) and pitch layouts all follow it. To add a size, add it there and give it a layout in `formations.js`.
+
 ### Pitch Builder
-Free placement on a 3:4 pitch: tap a player then tap the pitch, or drag. Top half = Team A, bottom = Team B. Starting layouts come from `formations.js` (7-a-side 1-2-3-1, 9-a-side 1-3-3-2). Positions are not persisted — only team membership. Mounted with `key={format}` so a format switch re-lays out. Bench tokens use `touch-action: pan-x` (swipe scrolls the bench, dragging up carries a player).
+Free placement on a 3:4 pitch: tap a player then tap the pitch, or drag. Top half = Team A, bottom = Team B. Starting layouts come from `formations.js` (7-a-side 1-2-3-1, 9-a-side 1-3-3-2, 10-a-side 1-3-4-2). Positions are not persisted — only team membership. Mounted with `key={format}` so a format switch re-lays out. Bench tokens use `touch-action: pan-x` (swipe scrolls the bench, dragging up carries a player).
 
 ### Admin System
 - PIN stored in `settings` (`key = 'admin_pin'`); unlocked via 7 taps on the "Sunday FC" title on Home, or the lock button on Squad.

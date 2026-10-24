@@ -15,6 +15,10 @@ export const STREAK_BADGE = 3           // consecutive results that earn a fire 
 export const MIN_BALANCE_PLAYERS = 12   // players needed before the balancer will suggest teams
 export const MIN_RATED_GAMES = 5        // games before a win rate is trusted as a rating
 export const DEFAULT_FORMAT = 7
+export const FORMATS = [7, 9, 10]       // players per side we have pitch layouts for
+
+// Smallest format that fits a team of this size (8 → 9-a-side, 11 → the largest we support)
+export const formatForSize = (size) => FORMATS.find((f) => size <= f) ?? FORMATS[FORMATS.length - 1]
 export const DEFAULT_REPORT_AUTHOR = 'h-shez'
 
 // Townhead Power League, Glasgow — used for match-day weather lookups

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../../context/app-context'
 import { useFeedback } from '../feedback-context'
-import { DEFAULT_FORMAT } from '../../lib/constants'
+import { DEFAULT_FORMAT, FORMATS, formatForSize } from '../../lib/constants'
 import { fmtDate, nearestSunday } from '../../lib/format'
 import { formatOf, hasScore } from '../../lib/stats'
 import { PageHeader, Segmented } from '../ui'
@@ -11,7 +11,7 @@ import TeamBuilder from './TeamBuilder'
 import ScoreStepper from './ScoreStepper'
 import PasteTeamsSheet from './PasteTeamsSheet'
 
-const FORMAT_OPTIONS = [{ value: 7, label: '7-a-side' }, { value: 9, label: '9-a-side' }]
+const FORMAT_OPTIONS = FORMATS.map((f) => ({ value: f, label: `${f}-a-side` }))
 const VIEW_OPTIONS = [{ value: 'pitch', label: 'Pitch' }, { value: 'list', label: 'List' }]
 
 // Create or edit a match: date, format, lineup and (optionally) the score.
@@ -35,7 +35,7 @@ export default function MatchForm({ session, onDone }) {
   function applyPastedTeams(a, b) {
     setTeamA(a)
     setTeamB(b)
-    setFormat(Math.max(a.length, b.length) > 7 ? 9 : 7)
+    setFormat(formatForSize(Math.max(a.length, b.length)))
     setLayoutKey((k) => k + 1)
     setPasting(false)
     toast(`Teams filled in · ${a.length} v ${b.length}`)

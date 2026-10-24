@@ -1,6 +1,7 @@
 // Pure stat helpers — no legacy fields, no context dependency.
 // AppContext layers the legacy (pre-Supabase) numbers on top of these.
 import { pct } from './format'
+import { FORMATS, formatForSize } from './constants'
 
 export const hasScore = (a, b) => a !== '' && b !== '' && a != null && b != null
 
@@ -99,10 +100,9 @@ export function rankRows(list, valueOf) {
   })
 }
 
-// Infer 7- or 9-a-side from stored data (falls back to team sizes for older sessions)
-export function formatOf(session, fallback = 7) {
+// Players per side (7 / 9 / 10). Uses the stored format, or infers it from team sizes for older sessions.
+export function formatOf(session) {
   const stored = session?.teams?.format ?? session?.format
-  if (stored === 7 || stored === 9) return stored
-  const maxTeam = Math.max(session?.teams?.teamA?.length ?? 0, session?.teams?.teamB?.length ?? 0)
-  return maxTeam > 7 ? 9 : fallback
+  if (FORMATS.includes(stored)) return stored
+  return formatForSize(Math.max(session?.teams?.teamA?.length ?? 0, session?.teams?.teamB?.length ?? 0))
 }
